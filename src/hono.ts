@@ -5,6 +5,7 @@ import { Context } from './context'
 import type { Env } from './context'
 import type { Result } from './router'
 import { Router, METHOD_NAME_OF_ALL } from './router'
+import { RegExpRouter } from './router/reg-exp-router'
 
 declare global {
   interface Request<ParamKeyType = string> {
@@ -53,7 +54,7 @@ export class TrieRouter<T> extends Router<T> {
 }
 
 export class Hono {
-  routerClass: { new (): Router<any> } = TrieRouter
+  routerClass: { new (): Router<any> } = RegExpRouter
   strict: boolean = true // strict routing - default is true
   router: Router<Handler>
   middlewareRouters: Router<MiddlewareHandler>[]
