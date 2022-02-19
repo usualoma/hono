@@ -110,7 +110,10 @@ describe('strict parameter', () => {
 })
 
 describe('Routing', () => {
-  const app = new Hono()
+  let app: Hono
+  beforeEach(() => {
+    app = new Hono()
+  })
 
   it('Return it self', async () => {
     const appRes = app.get('/', () => new Response('get /'))

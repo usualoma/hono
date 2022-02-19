@@ -45,7 +45,13 @@ describe('Logger by Middleware', () => {
   })
 
   it('Log status 404', async () => {
+    const app = new Hono()
+
     const msg = 'Default 404 Nout Found'
+    app.use('*', logger(logFn))
+    app.get('/short', (c) => c.text(shortRandomString))
+    app.get('/long', (c) => c.text(longRandomString))
+    app.get('/empty', (c) => c.text(''))
     app.all('*', (c) => {
       return c.text(msg, 404)
     })
