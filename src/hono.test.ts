@@ -432,7 +432,7 @@ describe('Middleware with app.HTTP_METHOD', () => {
   describe('Basic', () => {
     const app = new Hono()
 
-    app.all('*', async (c, next) => {
+    app.use('*', async (c, next) => {
       await next()
       c.header('x-custom-message', 'hello')
     })
@@ -805,6 +805,40 @@ describe('Multiple handler', () => {
           return c.text(`id is ${id}`)
         })
       }).not.toThrow()
+    })
+  })
+
+  describe('handler + handler', () => {
+    const app = new Hono()
+    app.get(
+      '/:slug',
+      async (c, next) => {
+        c.header('common', 'OK'), await next()
+      },
+      (c) => c.text('common')
+    )
+    app.get(
+      '/a',
+      async (c, next) => {
+        c.header('special', 'OK'), await next()
+      },
+      (c) => c.text('special')
+    )
+
+    it('special handler', async () => {
+      const res = await app.request('http://localhost/a')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('common')).toBeNull()
+      expect(res.headers.get('special')).toBe('OK')
+      expect(await res.text()).toBe('special')
+    })
+
+    it('common handler', async () => {
+      const res = await app.request('http://localhost/b')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('common')).toBe('OK')
+      expect(res.headers.get('special')).toBeNull()
+      expect(await res.text()).toBe('common')
     })
   })
 })

@@ -77,16 +77,20 @@ function defineDynamicClass(): {
   return class {} as any
 }
 
+interface HandlerSet<E extends Env> {
+  handlers: Handler<string, E>[]
+  isTerminator: boolean
+}
 interface Route<E extends Env> {
   path: string
   method: string
-  handler: Handler<string, E>
+  handlerSet: HandlerSet<E>
 }
 
 export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<E, P, Hono<E, P>> {
   readonly routerClass: { new (): Router<any> } = TrieRouter
   readonly strict: boolean = true // strict routing - default is true
-  private _router: Router<Handler<string, E>>
+  private _router: Router<HandlerSet<E>>
   private _tempPath: string
   private path: string = '/'
 
@@ -101,18 +105,17 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
     allMethods.map((method) => {
       this[method] = <Path extends string>(
         args1: Path | Handler<ParamKeys<Path>, E>,
-        ...args: [Handler<ParamKeys<Path>, E>]
+        ...args: Handler<ParamKeys<Path>, E>[]
       ) => {
         if (typeof args1 === 'string') {
           this.path = args1
         } else {
-          this.addRoute(method, this.path, args1)
+          args.unshift(args1)
         }
-        args.map((handler) => {
-          if (typeof handler !== 'string') {
-            this.addRoute(method, this.path, handler)
-          }
-        })
+
+        if (args.length) {
+          this.addRoute(method, this.path, { handlers: args, isTerminator: true })
+        }
         return this
       }
     })
@@ -141,7 +144,7 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
     this._tempPath = path
     if (app) {
       app.routes.map((r) => {
-        this.addRoute(r.method, r.path, r.handler)
+        this.addRoute(r.method, r.path, r.handlerSet)
       })
       this._tempPath = null
     }
@@ -158,7 +161,7 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
       handlers.unshift(arg1)
     }
     handlers.map((handler) => {
-      this.addRoute(METHOD_NAME_ALL, this.path, handler)
+      this.addRoute(METHOD_NAME_ALL, this.path, { handlers: [handler], isTerminator: false })
     })
     return this
   }
@@ -173,17 +176,17 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
     return this
   }
 
-  private addRoute(method: string, path: string, handler: Handler<string, E>): void {
+  private addRoute(method: string, path: string, handlerSet: HandlerSet<E>): void {
     method = method.toUpperCase()
     if (this._tempPath) {
       path = mergePath(this._tempPath, path)
     }
-    this._router.add(method, path, handler)
-    const r: Route<E> = { path: path, method: method, handler: handler }
+    this._router.add(method, path, handlerSet)
+    const r: Route<E> = { path: path, method: method, handlerSet: handlerSet }
     this.routes.push(r)
   }
 
-  private async matchRoute(method: string, path: string): Promise<Result<Handler<string, E>>> {
+  private async matchRoute(method: string, path: string): Promise<Result<HandlerSet<E>>> {
     return this._router.match(method, path)
   }
 
@@ -201,7 +204,25 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
         }
       }
     }) as typeof request.param
-    const handlers = result ? result.handlers : [this.notFoundHandler]
+    let handlers
+    if (result) {
+      const tmp = result.handlers
+
+      for (let i = tmp.length - 1, hasTerminator = false; i >= 0; i--) {
+        if (!hasTerminator) {
+          hasTerminator = tmp[i].isTerminator
+          continue
+        }
+
+        if (tmp[i].isTerminator) {
+          tmp.splice(i, 1)
+        }
+      }
+
+      handlers = tmp.flatMap((set) => set.handlers)
+    } else {
+      handlers = [this.notFoundHandler]
+    }
 
     const c = new Context<string, E>(request, {
       env: env,
