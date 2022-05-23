@@ -198,11 +198,13 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
         }
       }
     }) as typeof request.param
-    const handlers = result
-      ? typeof result.handlers[0] === 'function'
-        ? result.handlers
-        : result.handlers.flat()
-      : [this.notFoundHandler]
+    const handlers = (
+      result
+        ? typeof result.handlers[0] === 'function'
+          ? result.handlers
+          : result.handlers.flat()
+        : [this.notFoundHandler]
+    ) as Handler<string, E>[]
 
     const c = new Context<string, E>(request, {
       env: env,
