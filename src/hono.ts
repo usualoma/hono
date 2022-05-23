@@ -80,12 +80,12 @@ function defineDynamicClass(): {
 interface Route<E extends Env> {
   path: string
   method: string
-  handler: Handler<string, E>
+  handlers: Handler<string, E>[]
 }
 
 export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<E, P, Hono<E, P>> {
   readonly strict: boolean = true // strict routing - default is true
-  readonly router: Router<Handler<string, E>>
+  readonly router: Router<Handler<string, E>[]>
   private _tempPath: string
   private path: string = '/'
 
@@ -100,18 +100,16 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
     allMethods.map((method) => {
       this[method] = <Path extends string>(
         args1: Path | Handler<ParamKeys<Path>, E>,
-        ...args: [Handler<ParamKeys<Path>, E>]
+        ...args: Handler<ParamKeys<Path>, E>[]
       ) => {
         if (typeof args1 === 'string') {
           this.path = args1
         } else {
-          this.addRoute(method, this.path, args1)
+          args.unshift(args1)
         }
-        args.map((handler) => {
-          if (typeof handler !== 'string') {
-            this.addRoute(method, this.path, handler)
-          }
-        })
+        if (args.length) {
+          this.addRoute(method, this.path, args)
+        }
         return this
       }
     })
@@ -140,7 +138,7 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
     this._tempPath = path
     if (app) {
       app.routes.map((r) => {
-        this.addRoute(r.method, r.path, r.handler)
+        this.addRoute(r.method, r.path, r.handlers)
       })
       this._tempPath = null
     }
@@ -157,7 +155,7 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
       handlers.unshift(arg1)
     }
     handlers.map((handler) => {
-      this.addRoute(METHOD_NAME_ALL, this.path, handler)
+      this.addRoute(METHOD_NAME_ALL, this.path, [handler])
     })
     return this
   }
@@ -172,17 +170,17 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
     return this
   }
 
-  private addRoute(method: string, path: string, handler: Handler<string, E>): void {
+  private addRoute(method: string, path: string, handlers: Handler<string, E>[]): void {
     method = method.toUpperCase()
     if (this._tempPath) {
       path = mergePath(this._tempPath, path)
     }
-    this.router.add(method, path, handler)
-    const r: Route<E> = { path: path, method: method, handler: handler }
+    this.router.add(method, path, handlers)
+    const r: Route<E> = { path: path, method: method, handlers: handlers }
     this.routes.push(r)
   }
 
-  private async matchRoute(method: string, path: string): Promise<Result<Handler<string, E>>> {
+  private async matchRoute(method: string, path: string): Promise<Result<Handler<string, E>[]>> {
     return this.router.match(method, path)
   }
 
@@ -200,7 +198,11 @@ export class Hono<E = Env, P extends string = '/'> extends defineDynamicClass()<
         }
       }
     }) as typeof request.param
-    const handlers = result ? result.handlers : [this.notFoundHandler]
+    const handlers = result
+      ? typeof result.handlers[0] === 'function'
+        ? result.handlers
+        : result.handlers.flat()
+      : [this.notFoundHandler]
 
     const c = new Context<string, E>(request, {
       env: env,
