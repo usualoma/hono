@@ -18,6 +18,7 @@
       "node",
       "@cloudflare/workers-types"
     ],
+    "jsx": "react"
   },
   "include": [
     "src/**/*.ts",
