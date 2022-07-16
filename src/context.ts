@@ -11,8 +11,8 @@ type Env = Record<string, any>
 export interface Context<RequestParamKeyType extends string = string, E = Env> {
   req: Request<RequestParamKeyType>
   env: E
-  event: FetchEvent | undefined
-  executionCtx: ExecutionContext | undefined
+  event: FetchEvent
+  executionCtx: ExecutionContext
   finalized: boolean
 
   get res(): Response
@@ -37,11 +37,10 @@ export class HonoContext<RequestParamKeyType extends string = string, E = Env>
 {
   req: Request<RequestParamKeyType>
   env: E
-  event: FetchEvent | undefined
-  executionCtx: ExecutionContext | undefined
   finalized: boolean
 
   _status: StatusCode = 200
+  private _eventOrExecutionCtx: FetchEvent | ExecutionContext | undefined
   private _pretty: boolean = false
   private _prettySpace: number = 2
   private _map: Record<string, any> | undefined
@@ -55,17 +54,28 @@ export class HonoContext<RequestParamKeyType extends string = string, E = Env>
     eventOrExecutionCtx: FetchEvent | ExecutionContext | undefined = undefined,
     notFoundHandler: NotFoundHandler = () => new Response()
   ) {
+    this._eventOrExecutionCtx = eventOrExecutionCtx
     this.req = req
     this.env = env ? env : ({} as E)
 
-    if (eventOrExecutionCtx && 'respondWith' in eventOrExecutionCtx) {
-      this.event = eventOrExecutionCtx
-    } else {
-      this.executionCtx = eventOrExecutionCtx
-    }
-
     this.notFoundHandler = notFoundHandler
     this.finalized = false
+  }
+
+  get event(): FetchEvent {
+    if (this._eventOrExecutionCtx && 'respondWith' in this._eventOrExecutionCtx) {
+      return this._eventOrExecutionCtx
+    } else {
+      throw Error('This context has no FetchEvent')
+    }
+  }
+
+  get executionCtx(): ExecutionContext {
+    if (this._eventOrExecutionCtx && !('respondWith' in this._eventOrExecutionCtx)) {
+      return this._eventOrExecutionCtx
+    } else {
+      throw Error('This context has no ExecutionContext')
+    }
   }
 
   get res(): Response {
