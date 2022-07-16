@@ -1,5 +1,5 @@
 import { compose } from './compose'
-import type { Context } from './context'
+import type { Context, ContextTypes } from './context'
 import { HonoContext } from './context'
 import { extendRequestPrototype } from './request'
 import type { Router } from './router'
@@ -8,12 +8,21 @@ import { TrieRouter } from './router/trie-router' // Default Router
 import { getPathFromURL, mergePath } from './utils/url'
 
 type Env = Record<string, any>
-export type Handler<RequestParamKeyType extends string = string, E = Env> = (
-  c: Context<RequestParamKeyType, E>,
+export type Handler<
+  RequestParamKeyType extends string = string,
+  E = Env,
+  ContextType extends ContextTypes = 'ModuleContext'
+> = (
+  c: Context<RequestParamKeyType, E, ContextType>,
   next: Next
 ) => Response | Promise<Response> | Promise<void> | Promise<Response | undefined>
-export type NotFoundHandler<E = Env> = (c: Context<string, E>) => Response | Promise<Response>
-export type ErrorHandler<E = Env> = (err: Error, c: Context<string, E>) => Response
+export type NotFoundHandler<E = Env, ContextType extends ContextTypes = 'ModuleContext'> = (
+  c: Context<string, E, ContextType>
+) => Response | Promise<Response>
+export type ErrorHandler<E = Env, ContextType extends ContextTypes = 'ModuleContext'> = (
+  err: Error,
+  c: Context<string, E, ContextType>
+) => Response
 export type Next = () => Promise<void>
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -29,48 +38,54 @@ type ParamKeys<Path> = Path extends `${infer Component}/${infer Rest}`
   ? ParamKey<Component> | ParamKeys<Rest>
   : ParamKey<Path>
 
-interface HandlerInterface<T extends string, E extends Env = Env, U = Hono<E, T>> {
+interface HandlerInterface<
+  T extends string,
+  E extends Env = Env,
+  U = Hono<E, T>,
+  ContextType extends ContextTypes = 'ModuleContext'
+> {
   // app.get('/', handler, handler...)
   <Path extends string>(
     path: Path,
-    ...handlers: Handler<ParamKeys<Path> extends never ? string : ParamKeys<Path>, E>[]
+    ...handlers: Handler<ParamKeys<Path> extends never ? string : ParamKeys<Path>, E, ContextType>[]
   ): U
-  (path: string, ...handlers: Handler<string, E>[]): U
+  (path: string, ...handlers: Handler<string, E, ContextType>[]): U
   // app.get(handler...)
   <Path extends string>(
-    ...handlers: Handler<ParamKeys<Path> extends never ? string : ParamKeys<Path>, E>[]
+    ...handlers: Handler<ParamKeys<Path> extends never ? string : ParamKeys<Path>, E, ContextType>[]
   ): U
-  (...handlers: Handler<string, E>[]): U
+  (...handlers: Handler<string, E, ContextType>[]): U
 }
 
 const methods = ['get', 'post', 'put', 'delete', 'head', 'options', 'patch'] as const
 type Methods = typeof methods[number] | typeof METHOD_NAME_ALL_LOWERCASE
 
 function defineDynamicClass(): {
-  new <E extends Env, T extends string, U>(): {
-    [K in Methods]: HandlerInterface<T, E, U>
+  new <E extends Env, T extends string, U, ContextType extends ContextTypes>(): {
+    [K in Methods]: HandlerInterface<T, E, U, ContextType>
   }
 } {
   return class {} as any
 }
 
-interface Route<E extends Env> {
+interface Route<E extends Env, ContextType extends ContextTypes> {
   path: string
   method: string
-  handler: Handler<string, E>
+  handler: Handler<string, E, ContextType>
 }
 
-export class Hono<E extends Env = Env, P extends string = '/'> extends defineDynamicClass()<
-  E,
-  P,
-  Hono<E, P>
-> {
-  readonly router: Router<Handler<string, E>> = new TrieRouter()
+
+export class Hono<
+  E extends Env = Env,
+  P extends string = '/',
+  ContextType extends ContextTypes = 'ModuleContext'
+> extends defineDynamicClass()<E, P, Hono<E, P, ContextType>, ContextType> {
+  readonly router: Router<Handler<string, E, ContextType>> = new TrieRouter()
   readonly strict: boolean = true // strict routing - default is true
   private _tempPath: string = ''
   private path: string = '/'
 
-  routes: Route<E>[] = []
+  routes: Route<E, ContextType>[] = []
 
   constructor(init: Partial<Pick<Hono, 'router' | 'strict'>> = {}) {
     super()
@@ -80,8 +95,8 @@ export class Hono<E extends Env = Env, P extends string = '/'> extends defineDyn
     const allMethods = [...methods, METHOD_NAME_ALL_LOWERCASE]
     allMethods.map((method) => {
       this[method] = <Path extends string = ''>(
-        args1: Path | Handler<ParamKeys<Path>, E>,
-        ...args: [Handler<ParamKeys<Path>, E>]
+        args1: Path | Handler<ParamKeys<Path>, E, ContextType>,
+        ...args: [Handler<ParamKeys<Path>, E, ContextType>]
       ) => {
         if (typeof args1 === 'string') {
           this.path = args1
@@ -111,7 +126,7 @@ export class Hono<E extends Env = Env, P extends string = '/'> extends defineDyn
     return c.text(message, 500)
   }
 
-  route(path: string, app?: Hono<any>): Hono<E, P> {
+  route(path: string, app?: Hono<any>): Hono<E, P, ContextType> {
     this._tempPath = path
     if (app) {
       app.routes.map((r) => {
@@ -123,9 +138,12 @@ export class Hono<E extends Env = Env, P extends string = '/'> extends defineDyn
     return this
   }
 
-  use(path: string, ...middleware: Handler<string, E>[]): Hono<E, P>
-  use(...middleware: Handler<string, E>[]): Hono<E, P>
-  use(arg1: string | Handler<string, E>, ...handlers: Handler<string, E>[]): Hono<E, P> {
+  use(path: string, ...middleware: Handler<string, E, ContextType>[]): Hono<E, P, ContextType>
+  use(...middleware: Handler<string, E, ContextType>[]): Hono<E, P, ContextType>
+  use(
+    arg1: string | Handler<string, E, ContextType>,
+    ...handlers: Handler<string, E, ContextType>[]
+  ): Hono<E, P, ContextType> {
     if (typeof arg1 === 'string') {
       this.path = arg1
     } else {
@@ -137,23 +155,23 @@ export class Hono<E extends Env = Env, P extends string = '/'> extends defineDyn
     return this
   }
 
-  onError(handler: ErrorHandler<E>): Hono<E, P> {
+  onError(handler: ErrorHandler<E>): Hono<E, P, ContextType> {
     this.errorHandler = handler as ErrorHandler
     return this
   }
 
-  notFound(handler: NotFoundHandler<E>): Hono<E, P> {
+  notFound(handler: NotFoundHandler<E>): Hono<E, P, ContextType> {
     this.notFoundHandler = handler as NotFoundHandler
     return this
   }
 
-  private addRoute(method: string, path: string, handler: Handler<string, E>): void {
+  private addRoute(method: string, path: string, handler: Handler<string, E, ContextType>): void {
     method = method.toUpperCase()
     if (this._tempPath) {
       path = mergePath(this._tempPath, path)
     }
     this.router.add(method, path, handler)
-    const r: Route<E> = { path: path, method: method, handler: handler }
+    const r: Route<E, ContextType> = { path: path, method: method, handler: handler }
     this.routes.push(r)
   }
 
@@ -174,7 +192,12 @@ export class Hono<E extends Env = Env, P extends string = '/'> extends defineDyn
 
     const handlers = result ? result.handlers : [this.notFoundHandler]
 
-    const c = new HonoContext<string, E>(request, env, eventOrExecutionCtx, this.notFoundHandler)
+    const c = new HonoContext<string, E, ContextType>(
+      request,
+      env,
+      eventOrExecutionCtx,
+      this.notFoundHandler
+    )
 
     const composed = compose<HonoContext>(handlers, this.errorHandler, this.notFoundHandler)
     let context: HonoContext

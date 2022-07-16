@@ -8,11 +8,21 @@ type Headers = Record<string, string>
 export type Data = string | ArrayBuffer | ReadableStream
 type Env = Record<string, any>
 
-export interface Context<RequestParamKeyType extends string = string, E = Env> {
+export type ContextTypes = 'EventContext' | 'ModuleContext'
+type FetchEventMemberType<T extends ContextTypes> = T extends 'EventContext' ? FetchEvent : never
+type ExecutionContextMemberType<T extends ContextTypes> = T extends 'ModuleContext'
+  ? ExecutionContext
+  : never
+
+export interface Context<
+  RequestParamKeyType extends string = string,
+  E = Env,
+  ContextType extends ContextTypes = 'ModuleContext'
+> {
   req: Request<RequestParamKeyType>
   env: E
-  event: FetchEvent | undefined
-  executionCtx: ExecutionContext | undefined
+  event: FetchEventMemberType<ContextType>
+  executionCtx: ExecutionContextMemberType<ContextType>
   finalized: boolean
 
   get res(): Response
@@ -32,13 +42,16 @@ export interface Context<RequestParamKeyType extends string = string, E = Env> {
   notFound: () => Response | Promise<Response>
 }
 
-export class HonoContext<RequestParamKeyType extends string = string, E = Env>
-  implements Context<RequestParamKeyType, E>
+export class HonoContext<
+  RequestParamKeyType extends string = string,
+  E = Env,
+  ContextType extends ContextTypes = 'ModuleContext'
+> implements Context<RequestParamKeyType, E, ContextType>
 {
   req: Request<RequestParamKeyType>
   env: E
-  event: FetchEvent | undefined
-  executionCtx: ExecutionContext | undefined
+  event: FetchEventMemberType<ContextType>
+  executionCtx: ExecutionContextMemberType<ContextType>
   finalized: boolean
 
   _status: StatusCode = 200
@@ -59,10 +72,12 @@ export class HonoContext<RequestParamKeyType extends string = string, E = Env>
     this.env = env ? env : ({} as E)
 
     if (eventOrExecutionCtx && 'respondWith' in eventOrExecutionCtx) {
-      this.event = eventOrExecutionCtx
+      this.event = eventOrExecutionCtx as FetchEventMemberType<ContextType>
     } else {
-      this.executionCtx = eventOrExecutionCtx
+      this.executionCtx = eventOrExecutionCtx as ExecutionContextMemberType<ContextType>
     }
+    this.event ||= eventOrExecutionCtx as FetchEventMemberType<ContextType>
+    this.executionCtx ||= eventOrExecutionCtx as ExecutionContextMemberType<ContextType>
 
     this.notFoundHandler = notFoundHandler
     this.finalized = false
