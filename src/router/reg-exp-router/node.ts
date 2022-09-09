@@ -43,15 +43,6 @@ export class Node {
   index?: number
   varIndex?: number
   children: Record<string, Node> = {}
-  reverse: boolean
-
-  constructor({ reverse }: Partial<Node> = { reverse: false }) {
-    this.reverse = reverse as boolean
-  }
-
-  newChildNode(): Node {
-    return new Node({ reverse: this.reverse })
-  }
 
   insert(tokens: readonly string[], index: number, paramMap: ParamMap, context: Context): void {
     if (tokens.length === 0) {
@@ -76,7 +67,7 @@ export class Node {
 
       node = this.children[regexpStr]
       if (!node) {
-        node = this.children[regexpStr] = this.newChildNode()
+        node = this.children[regexpStr] = new Node()
         if (name !== '') {
           node.varIndex = context.varIndex++
         }
@@ -85,17 +76,14 @@ export class Node {
         paramMap.push([name, node.varIndex as number])
       }
     } else {
-      node = this.children[token] ||= this.newChildNode()
+      node = this.children[token] ||= new Node()
     }
 
     node.insert(restTokens, index, paramMap, context)
   }
 
   buildRegExpStr(): string {
-    let childKeys = Object.keys(this.children).sort(compareKey)
-    if (this.reverse) {
-      childKeys = childKeys.reverse()
-    }
+    const childKeys = Object.keys(this.children).sort(compareKey)
 
     const strList = childKeys.map((k) => {
       const c = this.children[k]

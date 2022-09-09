@@ -118,11 +118,8 @@ function getSortedHandlers<T>(
   return [...handlers].sort(compareHandler).map((h) => h.handler)
 }
 
-function buildMatcherFromPreprocessedRoutes<T>(
-  routes: Route<T>[],
-  hasAmbiguous: boolean = false
-): AnyMatcher<T> {
-  const trie = new Trie({ reverse: hasAmbiguous })
+function buildMatcherFromPreprocessedRoutes<T>(routes: Route<T>[]): AnyMatcher<T> {
+  const trie = new Trie()
   const handlers: HandlerData<T>[] | HandlerDataWithSortIndex<T>[] = []
 
   if (routes.length === 0) {
@@ -135,9 +132,7 @@ function buildMatcherFromPreprocessedRoutes<T>(
       [...routes[i].middleware, ...routes[i].handlers],
       Object.keys(paramMap).length !== 0 ? paramMap : null,
     ]
-    if (!hasAmbiguous) {
-      handlers[i][0] = getSortedHandlers(handlers[i][0] as HandlerWithSortIndex<T>[])
-    }
+    handlers[i][0] = getSortedHandlers(handlers[i][0] as HandlerWithSortIndex<T>[])
   }
 
   const [regexp, indexReplacementMap, paramReplacementMap] = trie.buildRegExp()
@@ -200,16 +195,11 @@ function verifyDuplicateParam<T>(routes: Route<T>[]): boolean {
 }
 
 export class RegExpRouter<T> implements Router<T> {
-  allowAmbiguous: boolean = true
   routeData?: {
     index: number
     routes: Route<T>[]
     methods: Set<string>
   } = { index: 0, routes: [], methods: new Set() }
-
-  constructor(init: Partial<Pick<RegExpRouter<T>, 'allowAmbiguous'>> = {}) {
-    Object.assign(this, init)
-  }
 
   add(method: string, path: string, handler: T) {
     if (!this.routeData) {
@@ -247,91 +237,42 @@ export class RegExpRouter<T> implements Router<T> {
   }
 
   match(method: string, path: string): Result<T> | null {
-    const [primaryMatchers, secondaryMatchers, hasAmbiguous] = this.buildAllMatchers()
+    const [primaryMatchers, secondaryMatchers] = this.buildAllMatchers()
 
-    this.match = hasAmbiguous
-      ? (method, path) => {
-          const matcher = (primaryMatchers[method] ||
-            primaryMatchers[METHOD_NAME_ALL]) as MatcherWithSortIndex<T>
-          let match = path.match(matcher[0])
+    this.match = (method, path) => {
+      let matcher = (primaryMatchers[method] || primaryMatchers[METHOD_NAME_ALL]) as Matcher<T>
+      let match = path.match(matcher[0])
 
-          if (!match) {
-            // do not support secondary matchers here.
-            return null
-          }
-
-          const params: Record<string, string> = {}
-          const handlers: Set<HandlerWithSortIndex<T>> = new Set()
-          let regExpSrc = matcher[0].source
-          while (match) {
-            let index = match.indexOf('', 1)
-            for (;;) {
-              const [handler, paramMap] = matcher[1][index]
-
-              if (paramMap) {
-                for (let i = 0, len = paramMap.length; i < len; i++) {
-                  params[paramMap[i][0]] = match[paramMap[i][1]]
-                }
-              }
-
-              for (let i = 0, len = handler.length; i < len; i++) {
-                handlers.add(handler[i])
-              }
-
-              const newIndex = match.indexOf('', index + 1)
-              if (newIndex === -1) {
-                break
-              }
-              index = newIndex
-            }
-
-            regExpSrc = regExpSrc.replace(
-              new RegExp(`((?:(?:\\(\\?:|.)*?\\([^)]*\\)){${index - 1}}.*?)\\(\\)`),
-              '$1(^)'
-            )
-            match = path.match(new RegExp(regExpSrc))
-          }
-
-          return { handlers: getSortedHandlers(handlers.values()), params }
+      if (!match) {
+        const matchers = secondaryMatchers[method] || secondaryMatchers[METHOD_NAME_ALL]
+        for (let i = 0, len = matchers.length; i < len && !match; i++) {
+          matcher = matchers[i] as Matcher<T>
+          match = path.match(matcher[0])
         }
-      : (method, path) => {
-          let matcher = (primaryMatchers[method] || primaryMatchers[METHOD_NAME_ALL]) as Matcher<T>
-          let match = path.match(matcher[0])
 
-          if (!match) {
-            const matchers = secondaryMatchers[method] || secondaryMatchers[METHOD_NAME_ALL]
-            for (let i = 0, len = matchers.length; i < len && !match; i++) {
-              matcher = matchers[i] as Matcher<T>
-              match = path.match(matcher[0])
-            }
-
-            if (!match) {
-              return null
-            }
-          }
-
-          const index = match.indexOf('', 1)
-          const [handlers, paramMap] = matcher[1][index]
-          if (!paramMap) {
-            return { handlers, params: emptyParam }
-          }
-
-          const params: Record<string, string> = {}
-          for (let i = 0, len = paramMap.length; i < len; i++) {
-            params[paramMap[i][0]] = match[paramMap[i][1]]
-          }
-
-          return { handlers, params }
+        if (!match) {
+          return null
         }
+      }
+
+      const index = match.indexOf('', 1)
+      const [handlers, paramMap] = matcher[1][index]
+      if (!paramMap) {
+        return { handlers, params: emptyParam }
+      }
+
+      const params: Record<string, string> = {}
+      for (let i = 0, len = paramMap.length; i < len; i++) {
+        params[paramMap[i][0]] = match[paramMap[i][1]]
+      }
+
+      return { handlers, params }
+    }
 
     return this.match(method, path)
   }
 
-  private buildAllMatchers(): [
-    Record<string, AnyMatcher<T>>,
-    Record<string, AnyMatcher<T>[]>,
-    boolean
-  ] {
+  private buildAllMatchers(): [Record<string, AnyMatcher<T>>, Record<string, AnyMatcher<T>[]>] {
     // @ts-ignore
     this.routeData.routes.sort(
       (
@@ -365,24 +306,19 @@ export class RegExpRouter<T> implements Router<T> {
 
     const primaryMatchers: Record<string, AnyMatcher<T>> = {}
     const secondaryMatchers: Record<string, AnyMatcher<T>[]> = {}
-    let hasAmbiguous = false
     // @ts-ignore
     this.routeData.methods.forEach((method) => {
-      let _hasAmbiguous
-      ;[primaryMatchers[method], secondaryMatchers[method], _hasAmbiguous] =
-        this.buildMatcher(method)
-      hasAmbiguous = hasAmbiguous || _hasAmbiguous
+      ;[primaryMatchers[method], secondaryMatchers[method]] = this.buildMatcher(method)
     })
     primaryMatchers[METHOD_NAME_ALL] ||= nullMatcher
     secondaryMatchers[METHOD_NAME_ALL] ||= []
 
     delete this.routeData // to reduce memory usage
 
-    return [primaryMatchers, secondaryMatchers, hasAmbiguous]
+    return [primaryMatchers, secondaryMatchers]
   }
 
-  private buildMatcher(method: string): [AnyMatcher<T>, AnyMatcher<T>[], boolean] {
-    let hasAmbiguous = false
+  private buildMatcher(method: string): [AnyMatcher<T>, AnyMatcher<T>[]] {
     const targetMethods = new Set([method, METHOD_NAME_ALL])
     // @ts-ignore
     const routes = this.routeData.routes.filter(({ method }) => targetMethods.has(method))
@@ -430,25 +366,14 @@ export class RegExpRouter<T> implements Router<T> {
 
           routes[i].hint[5] = false
         } else if (compareResult === 2) {
-          if (!this.allowAmbiguous) {
-            throw new UnsupportedPathError(routes[i].path)
-          }
           // ambiguous
-          hasAmbiguous = true
-
-          if (!verifyDuplicateParam([routes[i], routes[j]])) {
-            throw new Error('Duplicate param name')
-          }
+          throw new UnsupportedPathError(routes[i].path)
         }
       }
 
       if (!verifyDuplicateParam([routes[i]])) {
         throw new Error('Duplicate param name')
       }
-    }
-
-    if (hasAmbiguous) {
-      return [buildMatcherFromPreprocessedRoutes(routes, hasAmbiguous), [], hasAmbiguous]
     }
 
     const primaryRoutes = []
@@ -461,9 +386,8 @@ export class RegExpRouter<T> implements Router<T> {
       }
     }
     return [
-      buildMatcherFromPreprocessedRoutes(primaryRoutes, hasAmbiguous),
-      [buildMatcherFromPreprocessedRoutes(secondaryRoutes, hasAmbiguous)],
-      hasAmbiguous,
+      buildMatcherFromPreprocessedRoutes(primaryRoutes),
+      [buildMatcherFromPreprocessedRoutes(secondaryRoutes)],
     ]
   }
 }
