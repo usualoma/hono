@@ -4,15 +4,15 @@ import { METHOD_NAME_ALL, UnsupportedPathError } from '../../router'
 import type { ParamMap } from './trie'
 import { Trie } from './trie'
 
-interface Hint {
-  components: string[]
-  regExpComponents: Array<true | string>
-  componentsLength: number
-  endWithWildcard: boolean
-  paramIndexList: number[]
-  maybeHandler: boolean
-  namedParams: [number, string, string][]
-}
+type Hint = [
+  string[], // components
+  Array<true | string>, // regExpComponents
+  number, // componentsLength
+  boolean, // endWithWildcard
+  number[], // paramIndexList
+  boolean, // maybeHandler
+  [number, string, string][] // namedParams
+]
 interface HandlerWithSortIndex<T> {
   handler: T
   index: number
@@ -67,27 +67,30 @@ function initHint(path: string): Hint {
     }
   }
 
-  return {
+  return [
     components,
     regExpComponents,
     componentsLength,
-    endWithWildcard: path.endsWith('*'),
+    path.endsWith('*'),
     paramIndexList,
+    true,
     namedParams,
-    maybeHandler: true,
-  }
+  ]
 }
 
-function compareRoute<T>(a: Route<T>, b: Route<T>): CompareResult {
-  if (a.path === '*') {
+function compareRoute<T>(
+  { path: aPath, hint: [, aRegExpComponents, , aEndWithWildcard] }: Route<T>,
+  { hint: [, bRegExpComponents] }: Route<T>
+): CompareResult {
+  if (aPath === '*') {
     return 1
   }
 
   let i = 0
-  const len = a.hint.regExpComponents.length
+  const len = aRegExpComponents.length
   for (; i < len; i++) {
-    if (a.hint.regExpComponents[i] !== b.hint.regExpComponents[i]) {
-      if (a.hint.regExpComponents[i] === true) {
+    if (aRegExpComponents[i] !== bRegExpComponents[i]) {
+      if (aRegExpComponents[i] === true) {
         break
       }
 
@@ -97,15 +100,12 @@ function compareRoute<T>(a: Route<T>, b: Route<T>): CompareResult {
 
   // may be ambiguous
   for (; i < len; i++) {
-    if (
-      a.hint.regExpComponents[i] !== true &&
-      a.hint.regExpComponents[i] !== b.hint.regExpComponents[i]
-    ) {
+    if (aRegExpComponents[i] !== true && aRegExpComponents[i] !== bRegExpComponents[i]) {
       return 2
     }
   }
 
-  return i === b.hint.regExpComponents.length || a.hint.endWithWildcard ? 1 : 0
+  return i === bRegExpComponents.length || aEndWithWildcard ? 1 : 0
 }
 
 function compareHandler(a: HandlerWithSortIndex<any>, b: HandlerWithSortIndex<any>) {
@@ -171,8 +171,8 @@ function verifyDuplicateParam<T>(routes: Route<T>[]): boolean {
   for (let i = 0, len = routes.length; i < len; i++) {
     const route = routes[i]
 
-    for (let k = 0, len = route.hint.namedParams.length; k < len; k++) {
-      const [index, name] = route.hint.namedParams[k]
+    for (let k = 0, len = route.hint[6].length; k < len; k++) {
+      const [index, name] = route.hint[6][k]
       if (name in nameMap && index !== nameMap[name]) {
         return false
       } else {
@@ -333,30 +333,35 @@ export class RegExpRouter<T> implements Router<T> {
     boolean
   ] {
     // @ts-ignore
-    this.routeData.routes.sort(({ hint: a }, { hint: b }) => {
-      if (a.componentsLength !== b.componentsLength) {
-        return a.componentsLength - b.componentsLength
-      }
-      for (
-        let i = 0, len = Math.min(a.paramIndexList.length, b.paramIndexList.length) + 1;
-        i < len;
-        i++
-      ) {
-        if (a.paramIndexList[i] !== b.paramIndexList[i]) {
-          if (a.paramIndexList[i] === undefined) {
-            return -1
-          } else if (b.paramIndexList[i] === undefined) {
-            return 1
-          } else {
-            return a.paramIndexList[i] - b.paramIndexList[i]
+    this.routeData.routes.sort(
+      (
+        { hint: [, , aComponentsLength, aEndWithWildcard, aParamIndexList] },
+        { hint: [, , bComponentsLength, bEndWithWildcard, bParamIndexList] }
+      ) => {
+        if (aComponentsLength !== bComponentsLength) {
+          return aComponentsLength - bComponentsLength
+        }
+        for (
+          let i = 0, len = Math.min(aParamIndexList.length, bParamIndexList.length) + 1;
+          i < len;
+          i++
+        ) {
+          if (aParamIndexList[i] !== bParamIndexList[i]) {
+            if (aParamIndexList[i] === undefined) {
+              return -1
+            } else if (bParamIndexList[i] === undefined) {
+              return 1
+            } else {
+              return aParamIndexList[i] - bParamIndexList[i]
+            }
           }
         }
+        if (aEndWithWildcard !== bEndWithWildcard) {
+          return aEndWithWildcard ? -1 : 1
+        }
+        return 0
       }
-      if (a.endWithWildcard !== b.endWithWildcard) {
-        return a.endWithWildcard ? -1 : 1
-      }
-      return 0
-    })
+    )
 
     const primaryMatchers: Record<string, AnyMatcher<T>> = {}
     const secondaryMatchers: Record<string, AnyMatcher<T>[]> = {}
@@ -394,8 +399,8 @@ export class RegExpRouter<T> implements Router<T> {
         const compareResult = compareRoute(routes[i], routes[j])
         // i includes j
         if (compareResult === 1) {
-          const components = routes[j].hint.components
-          const namedParams = routes[i].hint.namedParams
+          const components = routes[j].hint[0]
+          const namedParams = routes[i].hint[6]
           for (let k = 0, len = namedParams.length; k < len; k++) {
             const c = components[namedParams[k][0]]
             const m = c.match(/^\/:(\w+)({[^}]+})?/)
@@ -407,16 +412,12 @@ export class RegExpRouter<T> implements Router<T> {
               routes[j].paramAliasMap[m[1]].push(namedParams[k][1])
             } else {
               components[namedParams[k][0]] = `/:${namedParams[k][1]}{${c.substring(1)}}`
-              routes[j].hint.namedParams.push([
-                namedParams[k][0],
-                namedParams[k][1],
-                c.substring(1),
-              ])
+              routes[j].hint[6].push([namedParams[k][0], namedParams[k][1], c.substring(1)])
               routes[j].path = components.join('')
             }
           }
 
-          if (routes[j].hint.components.length < routes[i].hint.components.length) {
+          if (components.length < routes[i].hint[0].length) {
             routes[j].middleware.push(
               ...routes[i].handlers.map((h) => ({
                 index: h.index,
@@ -427,7 +428,7 @@ export class RegExpRouter<T> implements Router<T> {
             routes[j].middleware.push(...routes[i].handlers)
           }
 
-          routes[i].hint.maybeHandler = false
+          routes[i].hint[5] = false
         } else if (compareResult === 2) {
           if (!this.allowAmbiguous) {
             throw new UnsupportedPathError(routes[i].path)
@@ -453,7 +454,7 @@ export class RegExpRouter<T> implements Router<T> {
     const primaryRoutes = []
     const secondaryRoutes = []
     for (let i = 0, len = routes.length; i < len; i++) {
-      if (routes[i].hint.maybeHandler || !routes[i].hint.endWithWildcard) {
+      if (routes[i].hint[5] || !routes[i].hint[5]) {
         primaryRoutes.push(routes[i])
       } else {
         secondaryRoutes.push(routes[i])
