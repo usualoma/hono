@@ -18,6 +18,7 @@ import type {
   NotFoundHandler,
   OnHandlerInterface,
   TypedResponse,
+  MergePath,
   MergeSchemaPath,
   RemoveBlankRecord,
 } from './types'
@@ -32,12 +33,12 @@ interface RouterRoute {
 }
 
 function defineDynamicClass(): {
-  new <E extends Env = Env, S = {}>(): {
-    [M in Methods]: HandlerInterface<E, M, S>
+  new <E extends Env = Env, S = {}, BasePath extends string = ''>(): {
+    [M in Methods]: HandlerInterface<E, M, S, BasePath>
   } & {
-    on: OnHandlerInterface<E, S>
+    on: OnHandlerInterface<E, S, BasePath>
   } & {
-    use: MiddlewareHandlerInterface<E, S>
+    use: MiddlewareHandlerInterface<E, S, BasePath>
   }
 } {
   return class {} as never
@@ -56,12 +57,16 @@ const errorHandler = (err: Error, c: Context) => {
   return c.text(message, 500)
 }
 
-export class Hono<E extends Env = Env, S = {}> extends defineDynamicClass()<E, S> {
+export class Hono<
+  E extends Env = Env,
+  S = {},
+  BasePath extends string = ''
+> extends defineDynamicClass()<E, S, BasePath> {
   readonly router: Router<H> = new SmartRouter({
     routers: [new RegExpRouter(), new TrieRouter()],
   })
   readonly strict: boolean = true // strict routing - default is true
-  readonly basePath: string = ''
+  readonly basePath: BasePath = '' as BasePath
   private path: string = '*'
 
   routes: RouterRoute[] = []
@@ -117,11 +122,12 @@ export class Hono<E extends Env = Env, S = {}> extends defineDynamicClass()<E, S
     Object.assign(this, init)
   }
 
-  private clone(overwrite: ConstructorParameters<typeof Hono>[0] = {}): Hono<E, S> {
-    const clone = new Hono<E, S>({
+  private clone(overwrite: ConstructorParameters<typeof Hono>[0] = {}): Hono<E, S, BasePath> {
+    const clone = new Hono<E, S, BasePath>({
       router: this.router,
       strict: this.strict,
-      basePath: this.basePath,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      basePath: this.basePath as any,
       ...overwrite,
     })
     clone.routes = this.routes
@@ -134,8 +140,13 @@ export class Hono<E extends Env = Env, S = {}> extends defineDynamicClass()<E, S
   route<SubPath extends string, SubEnv extends Env, SubSchema>(
     path: SubPath = '' as SubPath,
     app?: Hono<SubEnv, SubSchema>
-  ): Hono<E, RemoveBlankRecord<MergeSchemaPath<SubSchema, SubPath> | S>> {
-    const subApp = this.clone({ basePath: mergePath(this.basePath, path) })
+  ): Hono<
+    E,
+    RemoveBlankRecord<MergeSchemaPath<SubSchema, SubPath> | S>,
+    MergePath<BasePath, SubPath>
+  > {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const subApp = this.clone({ basePath: mergePath(this.basePath, path) as any })
 
     if (app) {
       app.routes.map((r) => {
