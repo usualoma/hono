@@ -60,7 +60,7 @@ export class Trie {
     regexp = regexp.replace(/#(\d+)|@(\d+)|\.\*\$/g, (_, handlerIndex, paramIndex) => {
       if (typeof handlerIndex !== 'undefined') {
         indexReplacementMap[++captureIndex] = Number(handlerIndex)
-        return '$()'
+        return '()(?=$\|\\?)'
       }
       if (typeof paramIndex !== 'undefined') {
         paramReplacementMap[Number(paramIndex)] = ++captureIndex
@@ -70,6 +70,6 @@ export class Trie {
       return ''
     })
 
-    return [new RegExp(`^${regexp}`), indexReplacementMap, paramReplacementMap]
+    return [new RegExp(`^https?:\/\/[^/]+(${regexp}|[^?]+)(:?\\?([^=&%]+)=([^&%]+)$)?`), indexReplacementMap, paramReplacementMap]
   }
 }

@@ -69,6 +69,7 @@ class Hono<E extends Env = Env, S = {}, BasePath extends string = '/'> extends d
   readonly getPath: ((request: Request) => string) | undefined
   private _basePath: string = ''
   private path: string = '*'
+  private _staticRoutes?: Record<string, any>
 
   routes: RouterRoute[] = []
 
@@ -284,18 +285,25 @@ class Hono<E extends Env = Env, S = {}, BasePath extends string = '/'> extends d
         new Response(null, await this.dispatch(request, executionCtx, env, 'GET')))()
     }
 
-    let path: string
-    let firstQuery: Record<string, string> | undefined = undefined
-
     if (this.getPath) {
-      path = this.getPath(request)
-    } else {
-      ;[path, firstQuery] = getPathWithFirstQuery(request)
+      // TODO: support custom getPath
+      // path = this.getPath(request)
     }
 
-    const { handlers, params } = this.matchRoute(method, path)
+    let handlers, params, path, firstQuery
+    if (!this._staticRoutes) {
+      ;({ handlers, params, path, firstQuery } = this.matchRoute(method, request.url))
+      this._staticRoutes = this.router.getStaticRoutes()
+    } else {
+      ;({ handlers, params, path, firstQuery } =
+        this._staticRoutes[method][request.url] || this.matchRoute(method, request.url))
+    }
 
-    const honoRequest = new HonoRequest(request, { path, paramData: params, firstQuery })
+    const honoRequest = new HonoRequest(request, {
+      path: path as string,
+      paramData: params,
+      firstQuery,
+    })
     const c = new Context(honoRequest, {
       env,
       executionCtx,

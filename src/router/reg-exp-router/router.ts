@@ -42,12 +42,14 @@ function buildMatcherFromPreprocessedRoutes<T>(routes: [string, T[]][]): Matcher
 
   const staticMap: StaticMap<T> = {}
   for (let i = 0, j = -1, len = routesWithStaticPathFlag.length; i < len; i++) {
-    const [pathErrorCheckOnly, path, handlers] = routesWithStaticPathFlag[i]
+    let [pathErrorCheckOnly, path, handlers] = routesWithStaticPathFlag[i]
     if (pathErrorCheckOnly) {
-      staticMap[path] = { handlers, params: emptyParam }
+      staticMap[path] = { handlers, params: emptyParam, path, firstQuery: undefined }
+      j++
     } else {
       j++
     }
+    pathErrorCheckOnly = false
 
     let paramMap
     try {
@@ -104,6 +106,7 @@ export class RegExpRouter<T> implements Router<T> {
   name: string = 'RegExpRouter'
   middleware?: Record<string, Record<string, T[]>>
   routes?: Record<string, Record<string, T[]>>
+  staticRoutes: Record<string, Record<string, Result<T>>> = {}
 
   constructor() {
     this.middleware = { [METHOD_NAME_ALL]: {} }
@@ -185,34 +188,58 @@ export class RegExpRouter<T> implements Router<T> {
 
     const matchers = this.buildAllMatchers()
 
+    const m = path.match(/^(https?:\/\/[^/]+)/)
+    if (m) {
+      const origin = m[1]
+      const staticRoutesForAll: any = {}
+      for (const [path, res] of Object.entries(matchers[METHOD_NAME_ALL][2])) {
+        staticRoutesForAll[origin + path] = res
+      }
+      for (let i = 0, len = methodNames.length; i < len; i++) {
+        const method = methodNames[i]
+        this.staticRoutes[method] = { ...staticRoutesForAll }
+        const matcher = matchers[method]
+        if (!matcher) {
+          continue
+        }
+        for (const [path, res] of Object.entries(matcher[2])) {
+          this.staticRoutes[method][origin + path] = res
+        }
+      }
+    }
+
     this.match = (method, path) => {
       const matcher = matchers[method]
-
-      const staticMatch = matcher[2][path]
-      if (staticMatch) {
-        return staticMatch
-      }
 
       const match = path.match(matcher[0])
       if (!match) {
         return null
       }
 
-      const index = match.indexOf('', 1)
-      const [handlers, paramMap] = matcher[1][index]
+      const index = match.indexOf('', 2)
+      const [handlers, paramMap] = matcher[1][index - 1]
       if (!paramMap) {
         return handlers
       }
 
       const params: Record<string, string> = {}
       for (let i = 0, len = paramMap.length; i < len; i++) {
-        params[paramMap[i][0]] = match[paramMap[i][1]]
+        params[paramMap[i][0]] = match[paramMap[i][1] + 1]
       }
 
-      return { handlers, params }
+      return {
+        handlers,
+        params,
+        path: match[1],
+        firstQuery: { [match[match.length - 2]]: match[match.length - 1] },
+      }
     }
 
     return this.match(method, path)
+  }
+
+  getStaticRoutes() {
+    return this.staticRoutes
   }
 
   private buildAllMatchers(): Record<string, Matcher<T>> {
