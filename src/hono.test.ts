@@ -1426,8 +1426,8 @@ describe('Hono with `app.route`', () => {
       return c.text('onError by app', 500)
     })
 
-    sub.get('/ok', (c) => {
-      return c.text('ok')
+    sub.get('/posts/:id', (c) => {
+      return c.text(`post: ${c.req.param('id')}`)
     })
 
     sub.get('/error', () => {
@@ -1439,6 +1439,12 @@ describe('Hono with `app.route`', () => {
     })
 
     app.route('/sub', sub)
+
+    it('GET /posts/123 for sub', async () => {
+      const res = await app.request('https://example.com/sub/posts/123')
+      expect(res.status).toBe(200)
+      expect(await res.text()).toBe('post: 123')
+    })
 
     it('should be handled by app', async () => {
       const res = await app.request('https://example.com/sub/ok?app-error=1')

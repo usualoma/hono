@@ -165,7 +165,8 @@ class Hono<
         app.errorHandler === errorHandler
           ? r.handler
           : async (c: Context, next: Next) =>
-              (await compose<Context>([[r.handler, {}]], app.errorHandler)(c, next)).res
+              (await compose<Context>([[r.handler, c.req.getParams()]], app.errorHandler)(c, next))
+                .res
       subApp.addRoute(r.method, r.path, handler)
     })
     return this

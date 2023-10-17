@@ -46,6 +46,10 @@ export class HonoRequest<P extends string = '/', I extends Input['out'] = {}> {
     this._p = params
   }
 
+  getParams() : ParamIndexMap | Params {
+    return this._p
+  }
+
   param<P2 extends string = P>(
     key: RemoveQuestion<ParamKeys<P2>>
   ): UndefinedIfHavingQuestion<ParamKeys<P2>>
