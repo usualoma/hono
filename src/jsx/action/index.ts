@@ -122,9 +122,9 @@ export const createAction = <Env extends BlankEnv, Data extends Record<string, s
   ]
 }
 
-export const createForm = <Env extends BlankEnv>(
+export const createForm = <Env extends BlankEnv, Data extends Record<string, string | File> = Record<string, string | File>>(
   app: Hono<Env>,
-  handler: ActionHandler<Env>
+  handler: ActionHandler<Data, Env>
 ): [ActionReturn[1]] => {
   const [action, Component] = createAction(app, handler)
   const subAction = action(Math.random().toString(36).substring(2, 15))
