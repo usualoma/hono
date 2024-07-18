@@ -12,8 +12,8 @@ import { PERMALINK } from '../constants'
 import { absolutePath } from '../../utils/url'
 import { createHash } from 'node:crypto'
 
-interface ActionHandler<Env extends BlankEnv> {
-  (data: Record<string, any> | undefined, c: Context<Env>, props: Props | undefined):
+interface ActionHandler<Data extends Record<string, string | File>, Env extends BlankEnv> {
+  (data: Data | undefined, c: Context<Env>, props: Props | undefined):
     | HtmlEscapedString
     | Promise<HtmlEscapedString>
     | Response
@@ -25,9 +25,9 @@ type ActionReturn = [(key: string) => () => void, FC]
 const clientScript = `(${client.toString()})()`
 const clientScriptUrl = `/hono-action-${createHash('sha256').update(clientScript).digest('hex')}.js`
 
-export const createAction = <Env extends BlankEnv>(
+export const createAction = <Env extends BlankEnv, Data extends Record<string, string | File> = Record<string, string | File>>(
   app: Hono<Env>,
-  handler: ActionHandler<Env>
+  handler: ActionHandler<Data, Env>
 ): ActionReturn => {
   const name = `/hono-action-${createHash('sha256').update(handler.toString()).digest('hex')}`
 
@@ -38,7 +38,7 @@ export const createAction = <Env extends BlankEnv>(
 
     const props = JSON.parse(c.req.header('X-Hono-Action-Props') || '{}')
     const data = await c.req.parseBody()
-    const res = await handler(data, c, props)
+    const res = await handler(data as Data, c, props)
     if (res instanceof Response) {
       if (res.status > 300 && res.status < 400) {
         return new Response('', {
@@ -58,7 +58,7 @@ export const createAction = <Env extends BlankEnv>(
     }
   })
 
-  // FIXME: dedupe
+  // FIXME: 
   app.get(
     absolutePath(clientScriptUrl),
     () =>
