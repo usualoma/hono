@@ -12,7 +12,7 @@ import { PERMALINK } from '../constants'
 import { absolutePath } from '../../utils/url'
 import { createHash } from 'node:crypto'
 
-interface ActionHandler<Data extends Record<string, string | File>, Env extends BlankEnv> {
+interface ActionHandler<Data extends FormRecord, Env extends BlankEnv> {
   (data: Data | undefined, c: Context<Env>, props: Props | undefined):
     | HtmlEscapedString
     | Promise<HtmlEscapedString>
@@ -22,10 +22,12 @@ interface ActionHandler<Data extends Record<string, string | File>, Env extends 
 
 type ActionReturn = [(key: string) => () => void, FC]
 
+type FormRecord = Record<string, string | File>
+
 const clientScript = `(${client.toString()})()`
 const clientScriptUrl = `/hono-action-${createHash('sha256').update(clientScript).digest('hex')}.js`
 
-export const createAction = <Env extends BlankEnv, Data extends Record<string, string | File> = Record<string, string | File>>(
+export const createAction = <Env extends BlankEnv, Data extends FormRecord>(
   app: Hono<Env>,
   handler: ActionHandler<Data, Env>
 ): ActionReturn => {
@@ -122,11 +124,11 @@ export const createAction = <Env extends BlankEnv, Data extends Record<string, s
   ]
 }
 
-export const createForm = <Env extends BlankEnv, Data extends Record<string, string | File> = Record<string, string | File>>(
+export const createForm = <Env extends BlankEnv, Data extends FormRecord>(
   app: Hono<Env>,
   handler: ActionHandler<Data, Env>
 ): [ActionReturn[1]] => {
-  const [action, Component] = createAction(app, handler)
+  const [action, Component] = createAction<Env, Data>(app, handler)
   const subAction = action(Math.random().toString(36).substring(2, 15))
   return [
     (props: Props = {}) => {
