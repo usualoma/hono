@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Hono } from '../../hono'
 import { RETAINED_304_HEADERS, etag } from '.'
 
@@ -260,5 +261,64 @@ describe('Etag Middleware', () => {
       expect(res.status).toBe(200)
       expect(res.headers.get('ETag')).toBeNull()
     })
+  })
+
+  it('Should generate etag from generator', async () => {
+    const app = new Hono()
+    app.use(
+      '/etag/*',
+      etag({
+        generator: async (stream) => {
+          // create sha1 hash incrementally by Node.js crypto
+          const hash = createHash('sha1')
+          const reader = stream.getReader()
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+              break
+            }
+            hash.update(value)
+          }
+
+          return hash.digest('hex')
+        },
+      })
+    )
+
+    app.get('/etag/stream1', (c) => {
+      return c.body(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('Hello '))
+            controller.enqueue(new TextEncoder().encode('World'))
+            controller.close()
+          },
+        })
+      )
+    })
+
+    app.get('/etag/stream2', (c) => {
+      return c.body(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('Hello'))
+            controller.enqueue(new TextEncoder().encode(' '))
+            controller.enqueue(new TextEncoder().encode('World'))
+            controller.close()
+          },
+        })
+      )
+    })
+
+    app.get('/etag/text', (c) => {
+      return c.text('Hello World')
+    })
+
+    for (const path of ['/etag/stream1', '/etag/stream2', '/etag/text']) {
+      const res = await app.request(path)
+      expect(res.status).toBe(200)
+      expect(res.headers.get('ETag')).toBe('"0a4d55a8d778e5022fab701977c5d840bbc486d0"')
+    }
   })
 })

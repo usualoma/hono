@@ -9,6 +9,7 @@ import { generateDigest } from './digest'
 type ETagOptions = {
   retainedHeaders?: string[]
   weak?: boolean
+  generator?: (stream: ReadableStream<Uint8Array>) => string | null | Promise<string | null>
 }
 
 /**
@@ -38,6 +39,7 @@ function etagMatches(etag: string, ifNoneMatch: string | null) {
  * @param {ETagOptions} [options] - The options for the ETag middleware.
  * @param {boolean} [options.weak=false] - Define using or not using a weak validation. If true is set, then `W/` is added to the prefix of the value.
  * @param {string[]} [options.retainedHeaders=RETAINED_304_HEADERS] - The headers that you want to retain in the 304 Response.
+ * @param {function(ReadableStream<Uint8Array>): string | null | Promise<string | null>} [options.generator] - The custom function to generate the ETag from the response body.
  * @returns {MiddlewareHandler} The middleware handler function.
  *
  * @example
@@ -53,6 +55,7 @@ function etagMatches(etag: string, ifNoneMatch: string | null) {
 export const etag = (options?: ETagOptions): MiddlewareHandler => {
   const retainedHeaders = options?.retainedHeaders ?? RETAINED_304_HEADERS
   const weak = options?.weak ?? false
+  const generator = options?.generator ?? generateDigest
 
   return async function etag(c, next) {
     const ifNoneMatch = c.req.header('If-None-Match') ?? null
@@ -63,7 +66,11 @@ export const etag = (options?: ETagOptions): MiddlewareHandler => {
     let etag = res.headers.get('ETag')
 
     if (!etag) {
-      const hash = await generateDigest(res.clone().body)
+      const stream = res.clone().body
+      if (!stream) {
+        return
+      }
+      const hash = await generator(stream)
       if (hash === null) {
         return
       }
