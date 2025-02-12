@@ -8,31 +8,30 @@ const mergeBuffers = (buffer1: ArrayBuffer | undefined, buffer2: Uint8Array): Ui
   return merged
 }
 
-export const generateDigest = async (
-  stream: ReadableStream<Uint8Array> | null,
-  generator?: (body: Uint8Array) => ArrayBuffer | Promise<ArrayBuffer>
-): Promise<string | null> => {
-  if (!stream || !generator) {
-    return null
-  }
-
-  let result: ArrayBuffer | undefined = undefined
-
-  const reader = stream.getReader()
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) {
-      break
+export const createStreamDigestGenerator =
+  (arrayDigestGenerator: (body: Uint8Array) => ArrayBuffer | Promise<ArrayBuffer>) =>
+  async (stream: ReadableStream<Uint8Array> | null): Promise<string | null> => {
+    if (!stream) {
+      return null
     }
 
-    result = await generator(mergeBuffers(result, value))
-  }
+    let result: ArrayBuffer | undefined = undefined
 
-  if (!result) {
-    return null
-  }
+    const reader = stream.getReader()
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) {
+        break
+      }
 
-  return Array.prototype.map
-    .call(new Uint8Array(result), (x) => x.toString(16).padStart(2, '0'))
-    .join('')
-}
+      result = await arrayDigestGenerator(mergeBuffers(result, value))
+    }
+
+    if (!result) {
+      return null
+    }
+
+    return Array.prototype.map
+      .call(new Uint8Array(result), (x) => x.toString(16).padStart(2, '0'))
+      .join('')
+  }

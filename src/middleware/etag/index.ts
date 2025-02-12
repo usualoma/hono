@@ -4,7 +4,7 @@
  */
 
 import type { MiddlewareHandler } from '../../types'
-import { generateDigest } from './digest'
+import { createStreamDigestGenerator } from './digest'
 
 type ETagOptions = {
   retainedHeaders?: string[]
@@ -29,6 +29,20 @@ export const RETAINED_304_HEADERS = [
 
 function etagMatches(etag: string, ifNoneMatch: string | null) {
   return ifNoneMatch != null && ifNoneMatch.split(/,\s*/).indexOf(etag) > -1
+}
+
+function getGenerateDigestFromStream(options?: ETagOptions) {
+  const generateDigestFromArray =
+    options?.generateDigest ?? crypto?.subtle
+      ? (body: Uint8Array) =>
+          crypto.subtle.digest(
+            {
+              name: 'SHA-1',
+            },
+            body
+          )
+      : undefined
+  return generateDigestFromArray ? createStreamDigestGenerator(generateDigestFromArray) : undefined
 }
 
 /**
@@ -57,19 +71,7 @@ function etagMatches(etag: string, ifNoneMatch: string | null) {
 export const etag = (options?: ETagOptions): MiddlewareHandler => {
   const retainedHeaders = options?.retainedHeaders ?? RETAINED_304_HEADERS
   const weak = options?.weak ?? false
-  let generator = options?.generateDigest
-
-  if (!generator) {
-    if (crypto && crypto.subtle) {
-      generator = (body: Uint8Array) =>
-        crypto.subtle.digest(
-          {
-            name: 'SHA-1',
-          },
-          body
-        )
-    }
-  }
+  const generateDigestFromStream = getGenerateDigestFromStream(options)
 
   return async function etag(c, next) {
     const ifNoneMatch = c.req.header('If-None-Match') ?? null
@@ -80,7 +82,10 @@ export const etag = (options?: ETagOptions): MiddlewareHandler => {
     let etag = res.headers.get('ETag')
 
     if (!etag) {
-      const hash = await generateDigest(res.clone().body, generator)
+      if (!generateDigestFromStream) {
+        return
+      }
+      const hash = await generateDigestFromStream(res.clone().body)
       if (hash === null) {
         return
       }
