@@ -88,34 +88,6 @@ export type PropsForRenderer = [...Required<Parameters<Renderer>>] extends [unkn
 export type Layout<T = Record<string, any>> = (props: T) => any
 
 /**
- * Interface for getting context variables.
- *
- * @template E - Environment type.
- */
-interface Get<E extends Env> {
-  <Key extends keyof E['Variables']>(key: Key): E['Variables'][Key]
-  <Key extends keyof ContextVariableMap>(key: Key): ContextVariableMap[Key]
-}
-
-/**
- * Interface for setting context variables.
- *
- * @template E - Environment type.
- */
-interface Set<E extends Env> {
-  <Key extends keyof E['Variables']>(key: Key, value: E['Variables'][Key]): void
-  <Key extends keyof ContextVariableMap>(key: Key, value: ContextVariableMap[Key]): void
-}
-
-/**
- * Interface for creating a new response.
- */
-interface NewResponse {
-  (data: Data | null, status?: StatusCode, headers?: HeaderRecord): Response
-  (data: Data | null, init?: ResponseOrInit): Response
-}
-
-/**
  * Interface for responding with a body.
  */
 interface BodyRespond {
@@ -163,37 +135,6 @@ interface TextRespond {
     text: T,
     init?: ResponseOrInit<U>
   ): Response & TypedResponse<T, U, 'text'>
-}
-
-/**
- * Interface for responding with JSON.
- *
- * @interface JSONRespond
- * @template T - The type of the JSON value or simplified unknown type.
- * @template U - The type of the status code.
- *
- * @param {T} object - The JSON object to be included in the response.
- * @param {U} [status] - An optional status code for the response.
- * @param {HeaderRecord} [headers] - An optional record of headers to include in the response.
- *
- * @returns {JSONRespondReturn<T, U>} - The response after rendering the JSON object, typed with the provided object and status code types.
- */
-interface JSONRespond {
-  <
-    T extends JSONValue | {} | InvalidJSONValue,
-    U extends ContentfulStatusCode = ContentfulStatusCode,
-  >(
-    object: T,
-    status?: U,
-    headers?: HeaderRecord
-  ): JSONRespondReturn<T, U>
-  <
-    T extends JSONValue | {} | InvalidJSONValue,
-    U extends ContentfulStatusCode = ContentfulStatusCode,
-  >(
-    object: T,
-    init?: ResponseOrInit<U>
-  ): JSONRespondReturn<T, U>
 }
 
 /**
@@ -275,6 +216,15 @@ interface ResponseInit<T extends StatusCode = StatusCode> {
 }
 
 type ResponseOrInit<T extends StatusCode = StatusCode> = ResponseInit<T> | Response
+
+type Variables<E extends Env> = (
+  IsAny<E> extends true
+    ? {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Variables: ContextVariableMap & Record<string, any>
+      }
+    : E
+)['Variables']
 
 export const TEXT_PLAIN = 'text/plain; charset=UTF-8'
 
@@ -445,9 +395,9 @@ export class Context<
    * })
    * ```
    */
-  render: Renderer = (...args) => {
+  render(...args: Parameters<Renderer>): ReturnType<Renderer> {
     this.#renderer ??= (content: string | Promise<string>) => this.html(content)
-    return this.#renderer(...args)
+    return this.#renderer(...args) as ReturnType<Renderer>
   }
 
   /**
@@ -456,20 +406,24 @@ export class Context<
    * @param layout - The layout to set.
    * @returns The layout function.
    */
-  setLayout = (
+  setLayout(
     layout: Layout<PropsForRenderer & { Layout: Layout }>
   ): Layout<
     PropsForRenderer & {
       Layout: Layout
     }
-  > => (this.#layout = layout)
+  > {
+    return (this.#layout = layout)
+  }
 
   /**
    * Gets the current layout for the response.
    *
    * @returns The current layout function.
    */
-  getLayout = (): Layout<PropsForRenderer & { Layout: Layout }> | undefined => this.#layout
+  getLayout(): Layout<PropsForRenderer & { Layout: Layout }> | undefined {
+    return this.#layout
+  }
 
   /**
    * `.setRenderer()` can set the layout in the custom middleware.
@@ -492,7 +446,7 @@ export class Context<
    * })
    * ```
    */
-  setRenderer = (renderer: Renderer): void => {
+  setRenderer(renderer: Renderer): void {
     this.#renderer = renderer
   }
 
@@ -512,7 +466,10 @@ export class Context<
    * })
    * ```
    */
-  header: SetHeaders = (name, value, options): void => {
+  header(name: 'Content-Type', value?: BaseMime, options?: SetHeadersOptions): void
+  header(name: ResponseHeader, value?: string, options?: SetHeadersOptions): void
+  header(name: string, value?: string, options?: SetHeadersOptions): void
+  header(name: string, value?: string, options?: SetHeadersOptions): void {
     if (this.finalized) {
       this.#res = createResponseInstance((this.#res as Response).body, this.#res)
     }
@@ -526,7 +483,7 @@ export class Context<
     }
   }
 
-  status = (status: StatusCode): void => {
+  status(status: StatusCode): void {
     this.#status = status
   }
 
@@ -543,14 +500,9 @@ export class Context<
    * })
    * ```
    */
-  set: Set<
-    IsAny<E> extends true
-      ? {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          Variables: ContextVariableMap & Record<string, any>
-        }
-      : E
-  > = (key: string, value: unknown) => {
+  set<Key extends keyof Variables<E>>(key: Key, value: Variables<E>[Key]): void
+  set<Key extends keyof ContextVariableMap>(key: Key, value: ContextVariableMap[Key]): void
+  set(key: string, value: unknown): void {
     this.#var ??= new Map()
     this.#var.set(key, value)
   }
@@ -568,14 +520,9 @@ export class Context<
    * })
    * ```
    */
-  get: Get<
-    IsAny<E> extends true
-      ? {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          Variables: ContextVariableMap & Record<string, any>
-        }
-      : E
-  > = (key: string) => {
+  get<Key extends keyof Variables<E>>(key: Key): Variables<E>[Key]
+  get<Key extends keyof ContextVariableMap>(key: Key): ContextVariableMap[Key]
+  get(key: string): unknown {
     return this.#var ? this.#var.get(key) : undefined
   }
 
@@ -638,7 +585,11 @@ export class Context<
     return createResponseInstance(data, { status, headers: responseHeaders })
   }
 
-  newResponse: NewResponse = (...args) => this.#newResponse(...(args as Parameters<NewResponse>))
+  newResponse(data: Data | null, status?: StatusCode, headers?: HeaderRecord): Response
+  newResponse(data: Data | null, init?: ResponseOrInit): Response
+  newResponse(data: Data | null, arg?: StatusCode | ResponseOrInit, headers?: HeaderRecord): Response {
+    return this.#newResponse(data, arg, headers)
+  }
 
   /**
    * `.body()` can return the HTTP response.
@@ -661,11 +612,31 @@ export class Context<
    * })
    * ```
    */
-  body: BodyRespond = (
+  body<T extends Data, U extends ContentfulStatusCode>(
+    data: T,
+    status?: U,
+    headers?: HeaderRecord
+  ): Response & TypedResponse<T, U, 'body'>
+  body<T extends Data, U extends ContentfulStatusCode>(
+    data: T,
+    init?: ResponseOrInit<U>
+  ): Response & TypedResponse<T, U, 'body'>
+  body<T extends null, U extends StatusCode>(
+    data: T,
+    status?: U,
+    headers?: HeaderRecord
+  ): Response & TypedResponse<null, U, 'body'>
+  body<T extends null, U extends StatusCode>(
+    data: T,
+    init?: ResponseOrInit<U>
+  ): Response & TypedResponse<null, U, 'body'>
+  body(
     data: Data | null,
     arg?: StatusCode | RequestInit,
     headers?: HeaderRecord
-  ): ReturnType<BodyRespond> => this.#newResponse(data, arg, headers) as ReturnType<BodyRespond>
+  ): ReturnType<BodyRespond> {
+    return this.#newResponse(data, arg, headers) as ReturnType<BodyRespond>
+  }
 
   #useFastPath(): boolean {
     return !this.#preparedHeaders && !this.#status && !this.finalized
@@ -683,11 +654,20 @@ export class Context<
    * })
    * ```
    */
-  text: TextRespond = (
+  text<T extends string, U extends ContentfulStatusCode = ContentfulStatusCode>(
+    text: T,
+    status?: U,
+    headers?: HeaderRecord
+  ): Response & TypedResponse<T, U, 'text'>
+  text<T extends string, U extends ContentfulStatusCode = ContentfulStatusCode>(
+    text: T,
+    init?: ResponseOrInit<U>
+  ): Response & TypedResponse<T, U, 'text'>
+  text(
     text: string,
     arg?: ContentfulStatusCode | ResponseOrInit,
     headers?: HeaderRecord
-  ): ReturnType<TextRespond> => {
+  ): ReturnType<TextRespond> {
     return this.#useFastPath() && !arg && !headers
       ? (createResponseInstance(text) as ReturnType<TextRespond>)
       : (this.#newResponse(
@@ -709,14 +689,29 @@ export class Context<
    * })
    * ```
    */
-  json: JSONRespond = <
+  json<
+    T extends JSONValue | {} | InvalidJSONValue,
+    U extends ContentfulStatusCode = ContentfulStatusCode,
+  >(
+    object: T,
+    status?: U,
+    headers?: HeaderRecord
+  ): JSONRespondReturn<T, U>
+  json<
+    T extends JSONValue | {} | InvalidJSONValue,
+    U extends ContentfulStatusCode = ContentfulStatusCode,
+  >(
+    object: T,
+    init?: ResponseOrInit<U>
+  ): JSONRespondReturn<T, U>
+  json<
     T extends JSONValue | {} | InvalidJSONValue,
     U extends ContentfulStatusCode = ContentfulStatusCode,
   >(
     object: T,
     arg?: U | ResponseOrInit<U>,
     headers?: HeaderRecord
-  ): JSONRespondReturn<T, U> => {
+  ): JSONRespondReturn<T, U> {
     return (
       this.#useFastPath() && !arg && !headers
         ? Response.json(object)
@@ -728,11 +723,20 @@ export class Context<
     ) as JSONRespondReturn<T, U>
   }
 
-  html: HTMLRespond = (
+  html<T extends string | Promise<string>>(
+    html: T,
+    status?: ContentfulStatusCode,
+    headers?: HeaderRecord
+  ): T extends string ? Response : Promise<Response>
+  html<T extends string | Promise<string>>(
+    html: T,
+    init?: ResponseOrInit<ContentfulStatusCode>
+  ): T extends string ? Response : Promise<Response>
+  html(
     html: string | Promise<string>,
     arg?: ContentfulStatusCode | ResponseOrInit<ContentfulStatusCode>,
     headers?: HeaderRecord
-  ): Response | Promise<Response> => {
+  ): Response | Promise<Response> {
     const res = (html: string) =>
       this.#newResponse(html, arg, setDefaultContentType('text/html; charset=UTF-8', headers))
     return typeof html === 'object'
@@ -755,10 +759,10 @@ export class Context<
    * })
    * ```
    */
-  redirect = <T extends RedirectStatusCode = 302>(
+  redirect<T extends RedirectStatusCode = 302>(
     location: string | URL,
     status?: T
-  ): Response & TypedResponse<undefined, T, 'redirect'> => {
+  ): Response & TypedResponse<undefined, T, 'redirect'> {
     const locationString = String(location)
     this.header(
       'Location',
@@ -781,7 +785,7 @@ export class Context<
    * })
    * ```
    */
-  notFound = (): ReturnType<NotFoundHandler> => {
+  notFound(): ReturnType<NotFoundHandler> {
     this.#notFoundHandler ??= () => createResponseInstance()
     return this.#notFoundHandler(this)
   }

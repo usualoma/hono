@@ -48,6 +48,43 @@ describe('Env', () => {
   })
 })
 
+describe('Context method signature regression', () => {
+  it('should preserve call signatures for context methods', () => {
+    type CEnv = {
+      Variables: {
+        foo: string
+      }
+      Bindings: {}
+    }
+
+    const c = new Context<CEnv>(new Request('http://localhost'))
+
+    c.set('foo', 'bar')
+    expectTypeOf(c.get('foo')).toEqualTypeOf<string>()
+
+    const renderRes = c.render('<h1>hello</h1>', { title: 'hello' })
+    expectTypeOf(renderRes).toEqualTypeOf<Response | Promise<Response>>()
+
+    const bodyRes = c.body('body', 200)
+    expectTypeOf(bodyRes).toEqualTypeOf<Response & TypedResponse<'body', 200, 'body'>>()
+
+    const textRes = c.text('text', 200)
+    expectTypeOf(textRes).toEqualTypeOf<Response & TypedResponse<'text', 200, 'text'>>()
+
+    const jsonRes = c.json({ ok: true }, 200)
+    expectTypeOf(jsonRes).toMatchTypeOf<Response>()
+
+    const htmlRes = c.html('<h1>html</h1>', 200)
+    expectTypeOf(htmlRes).toEqualTypeOf<Response>()
+
+    const redirectRes = c.redirect('/', 301)
+    expectTypeOf(redirectRes).toEqualTypeOf<Response & TypedResponse<undefined, 301, 'redirect'>>()
+
+    const newResponseRes = c.newResponse('new response', 200)
+    expectTypeOf(newResponseRes).toEqualTypeOf<Response>()
+  })
+})
+
 describe('HandlerInterface', () => {
   type Env = {}
 
